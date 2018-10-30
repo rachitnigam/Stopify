@@ -28,6 +28,7 @@ export abstract class AbstractRunner implements AsyncRun {
   protected eventMode = EventProcessingMode.Running;
   private eventQueue: EventHandler[] = [];
   private higherOrderFunctions: any;
+  private pauseImmediateHandler: undefined | (() => void); // this gets called when paused
 
   // The global object for Stopified code.
   public g = Object.create(null);
@@ -120,6 +121,8 @@ export abstract class AbstractRunner implements AsyncRun {
       onPaused(); // onYield will not be invoked
     }
     else {
+      typeof this.pauseImmediateHandler !== 'undefined' && this.pauseImmediateHandler();
+      this.pauseImmediateHandler = undefined; // reset back to undefined
       this.suspendRTS.onYield = () => {
         this.suspendRTS.onYield = () => {
           this.onYield();
@@ -192,13 +195,16 @@ export abstract class AbstractRunner implements AsyncRun {
     this.suspendRTS.resumeFromCaptured();
   }
 
-  pauseImmediate(callback: () => void): void {
+  pauseImmediate(callback: (registerCancel : (handler: () => void) => void) => void): void {
     // NOTE: We don't switch the mode to paused! This is because we don't want
     // the user to be able to hit "step" at this point.
     return this.continuationsRTS.captureCC((k) => {
       return this.continuationsRTS.endTurn(onDone => {
         this.k = { k, onDone };
-        callback();
+        let regCancel = (handler: () => void) => {
+          this.pauseImmediateHandler = handler;
+        }
+        callback(regCancel);
       });
     });
   }
